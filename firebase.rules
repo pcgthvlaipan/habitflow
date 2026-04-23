@@ -1,0 +1,120 @@
+// ════════════════════════════════════════════════════════════════
+// FIRESTORE SECURITY RULES
+// Copy this into Firebase Console → Firestore → Rules
+// ════════════════════════════════════════════════════════════════
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──────────────────────────────────────
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
+
+    function isValidHabit() {
+      let data = request.resource.data;
+      return data.keys().hasAll(['name', 'uid', 'days', 'active'])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 100
+        && data.uid == request.auth.uid
+        && data.days is list
+        && data.active is bool;
+    }
+
+    function isValidCompletion() {
+      let data = request.resource.data;
+      return data.keys().hasAll(['habitId', 'dateKey', 'uid'])
+        && data.uid == request.auth.uid
+        && data.habitId is string
+        && data.dateKey is string
+        && data.dateKey.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}');
+    }
+
+    // ── User documents ────────────────────────────────────────
+    match /users/{uid} {
+      allow read: if isAuthenticated() && isOwner(uid);
+      allow write: if isAuthenticated() && isOwner(uid);
+
+      // ── Habits subcollection ──────────────────────────────
+      match /habits/{habitId} {
+        allow read: if isAuthenticated() && isOwner(uid);
+        allow create: if isAuthenticated() && isOwner(uid) && isValidHabit();
+        allow update: if isAuthenticated() && isOwner(uid)
+          && request.resource.data.uid == uid;
+        allow delete: if isAuthenticated() && isOwner(uid);
+      }
+
+      // ── Completions subcollection ─────────────────────────
+      match /completions/{completionId} {
+        allow read: if isAuthenticated() && isOwner(uid);
+        allow create: if isAuthenticated() && isOwner(uid) && isValidCompletion();
+        allow delete: if isAuthenticated() && isOwner(uid);
+        // No update — delete and recreate instead
+        allow update: if false;
+      }
+
+      // ── Coach messages subcollection ──────────────────────
+      match /coachMessages/{messageId} {
+        allow read: if isAuthenticated() && isOwner(uid);
+        allow create: if isAuthenticated() && isOwner(uid)
+          && request.resource.data.keys().hasAll(['type', 'message'])
+          && request.resource.data.type is string;
+        allow update, delete: if false; // Messages are immutable
+      }
+    }
+
+    // Block all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// FIREBASE STORAGE SECURITY RULES
+// Copy this into Firebase Console → Storage → Rules
+// ════════════════════════════════════════════════════════════════
+
+/*
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ── User habit icons ──────────────────────────────────────
+    match /users/{uid}/habits/icons/{filename} {
+      // Only the owning user can read their icons
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // Only the owning user can upload icons
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 5 * 1024 * 1024  // 5MB max
+        && request.resource.contentType.matches('image/.*');
+
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── User avatars ──────────────────────────────────────────
+    match /users/{uid}/avatar.{ext} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 2 * 1024 * 1024  // 2MB max
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Block everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+*/
